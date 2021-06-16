@@ -1,0 +1,239 @@
+---
+title: "Investigating Tests for Equality of Variances"
+author: "Andrew Nguyen"
+date: "06/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+set.seed(93473)
+
+library(car)
+library(onewaytests)
+```
+
+## Introduction
+
+Before performing an ANOVA test, the assumption of equal variances within each group must be satisfied. We are already familiar with the F-test, which takes the ratio of two variances as its test statistic. However, this method only works well if the population distributions it is testing are each approximately normally distributed. Fortunately, there are numerous other tests for variance equality to use for non-Normal situations. The hupotheses for the tests of equal variance are as follows:
+
+$$ H_o: \sigma^2_1 = \sigma^2_2 \\ H_a: \sigma^2_1 \neq \sigma^2_2$$
+
+For this project I will be performing some sensitivity analyses to investigate how well certain tests perform under different parameters and distributions. Tests included are the F-test, Bartlett's test, and Levene's test. Unlike the F-test, the Bartlett's test statistic uses the Chi-Square(*k*-1) distribution to determine significance, where *k* is the number of groups. The Levene test uses the F(*k*-1,*N*-1) distribution, where *k* is the number of groups and *N* is the total number of observations. The F-test and Bartlett tests are sensitive towards the shape of the population distribution the observations are sampled from, while the Levene test is more lenient. Comparisons of just two variances will be used to account for the F-test as well. 
+
+## Simulation: Normal distributions
+
+Let us say there is a fish cooking competition, and we want to determine if there is a significant difference between the mean scores of Chef A's cooked fish and Chef B's cooked fish. The fish can be divided up to *n* portions, one for each judge. Before performing the hypothesis test, we need know if the variance in scores for Chef's A fish is about equal to that for Chef B's fish. The scores of the observant judges roughly follow a Normal distribution. The metric we will be using to analyze sensitivity is the proportion of hypothesis tests that are rejected under a significance level of .05. Below is a function takes in a sample size for both groups, a mean equal for each group for the sake of consistency, two standard deviations, and the number of reps or hypothesis tests to run. In other words, we can assume that the mean scores for each chef are equal. We want to focus more on the variances of their scores. 
+
+```{r}
+norm_function <- function(n, mean, sd1, sd2, reps) {
+  ft.pvalues = vector(length = reps)
+  b.pvalues <- vector(length = reps)
+  lev.pvalues <- vector(length = reps)
+  bf.pvalues <- vector(length = reps)
+  for (i in 1:reps) {
+    flavor1 <- rnorm(n, mean = mean, sd = sd1)
+    flavor2 <- rnorm(n, mean = mean, sd = sd2)
+    flavor <- c(flavor1,flavor2)
+    method <- c(rep(1,n),rep(2,n))
+    df = data.frame(cbind(method, flavor))
+    ft <- var.test(flavor1,flavor2)
+    bt <- bartlett.test(flavor~factor(method),df)
+    lev <- leveneTest(flavor~factor(method),center="mean",df)
+    
+    ft.pvalues[i] = ft$p.value
+    b.pvalues[i] = bt$p.value
+    lev.pvalues[i] = lev$`Pr(>F)`[1]
+  }
+  return(list(ftest=ft.pvalues,bartlett=b.pvalues,levene=lev.pvalues))
+}
+```
+
+Below we save the p-values of 500 hypothesis tests for each test of equality. In this simulation, we investigate the results when both variances of Normal population distributions are equal, that is, the null hypothesis for each test is true. We can create histograms of the p-values as well. The sample size is 100. As we can see, they are roughly uniformly distributed, as expected from a situation where the null hypotheses are true. The F-test and Barlett test rejected 6.2% of the tests, while the Levene test rejected 5.8%.
+
+```{r include=FALSE}
+sim <- norm_function(100,5,1,1,500)
+```
+
+```{r echo=FALSE}
+par(mfrow=c(2,2))
+hist(sim$ftest)
+hist(sim$bartlett)
+hist(sim$levene)
+#hist(sim$bf)
+```
+
+```{r eval=T, include=FALSE}
+# proportion of tests that rejected the null hypothesis.
+sum(sim$ftest < .05)/length(sim$ftest)
+sum(sim$bartlett < .05)/length(sim$bartlett)
+sum(sim$levene < .05)/length(sim$levene)
+#sum(sim$bf < .05)/length(sim$bf)
+```
+
+The histograms below the results from when the two variances are equal to 1 and 1.44.
+
+```{r echo=F}
+sim2 <- norm_function(100,5,1,1.2,500)
+```
+
+```{r echo=F}
+par(mfrow=c(2,2))
+hist(sim2$ftest)
+hist(sim2$bartlett)
+hist(sim2$levene)
+```
+
+```{r eval=FALSE, include=FALSE}
+# proportion of tests that rejected the null hypothesis.
+sum(sim2$ftest < .05)/length(sim2$ftest)
+sum(sim2$bartlett < .05)/length(sim2$bartlett)
+sum(sim2$levene < .05)/length(sim2$levene)
+#sum(sim$bf < .05)/length(sim$bf)
+```
+
+From the histograms, 41.6% of the tests are rejected by the F-test and Bartlett test individually, and 34.6% rejected by Levenne's test. The F-test and Bartlett's test both give the exact same proportion of tests that were rejected. Upon further inspection, they both give nearly equal p-values to each other, differing by several decimal places. From here on out, we will just keep the F-test in our analyses to avoid redundancy; the only different between the two methods is that Bartlett's test can test for more than two variances. 
+
+When the sample size is decreased to 20, the proportion of tests rejected drops to .116 and .12 for F-test and Levene's, respectively. We see that generally, the lower the sample size, the more variability there is in the observations, making it less likely to reject the null hypothesis. With all the simulations we have done so far, Levene's test has slightly lower proportions of rejected tests, but not by a lot. The F-test also did relatively well when it came to Normal distributions, as expected.
+
+## Simulation: Exponential distribution
+
+Now we look at the case where the population distributions are exponential. Since the mean and variance are proportional to each other, we just have to enter the desired averages to perform the tests. The function to simulate this is very similar to above, except we are now sampling from our specified exponential distributions. The line plots below compare and contrast the proportion of tests rejected for different scenarios. The top two plots occur when sampled from Normal distributions for comparison. The bottom two plots occur under exponentially distributed populations.  
+
+```{r, echo=F}
+exp_function <- function(n, mean, mean2, reps) {
+  ft.pvalues <- vector(length = reps)
+  lev.pvalues <- vector(length = reps)
+  bf.pvalues <- vector(length = reps)
+  for (i in 1:reps) {
+    flavor1 <- rexp(n, rate = 1/mean)
+    flavor2 <- rexp(n, rate = 1/mean2)
+    flavor <- c(flavor1,flavor2)
+    method <- c(rep(1,n),rep(2,n))
+    df = data.frame(cbind(method, flavor))
+    ft <- var.test(flavor1,flavor2)
+    lev <- leveneTest(flavor~factor(method),center="mean",df)
+    bf <- leveneTest(flavor~factor(method),df)
+    ft.pvalues[i] = ft$p.value
+    lev.pvalues[i] = lev$`Pr(>F)`[1]
+    bf.pvalues[i] = bf$`Pr(>F)`[1]
+  }
+  # return(list(bartlett=b.pvalues,levene=lev.pvalues,bf=bf.pvalues))
+  return(list(ftest=ft.pvalues,levene=lev.pvalues,bf=bf.pvalues))
+}
+```
+
+
+```{r,echo=F}
+sds <- c(1,1.1,1.2,1.5)
+ns <- c(10,50,100,200)
+test1 <- vector(length=4)
+test2 <- vector(length=4)
+for (i in 1:length(sds)) {
+  temp <- norm_function(100,5,1, sds[i],500)
+  test1[i] = sum(temp$ftest < .05)/length(temp$ftest)
+  test2[i] = sum(temp$levene < .05)/length(temp$levene)
+}
+test3 <- vector(length=4)
+test4 <- vector(length=4)
+for (i in 1:length(ns)) {
+  temp <- norm_function(ns[i],5,1,1.3,500)
+  test3[i] = sum(temp$ftest < .05)/length(temp$ftest)
+  test4[i] = sum(temp$levene < .05)/length(temp$levene)
+}
+```
+```{r,echo=F}
+par(mfrow=c(1,2))
+plot(test1~sds, xlab="difference in sds",ylab="Proportion rejected")
+title(main="sample variances")
+lines(test1~sds)
+lines(test2~sds,col="blue")
+# plot(test2~sds, ylab="Proportion rejected")
+# title(main="Levene")
+# lines(test2~sds)
+plot(test3~ns, xlab="sample size",ylab="Proportion rejected",ylim=c(0,1))
+title(main="sample sizes")
+lines(test3~ns)
+lines(test4~ns,col="blue")
+```
+
+
+```{r,echo=F}
+test5 <- vector(length=4)
+test6 <- vector(length=4)
+test65 <- vector(length=4)
+means = c(1,1.1,1.2,1.5)
+for (i in 1:length(means)) {
+  temp <- exp_function(100,1,means[i],500)
+  test5[i] = sum(temp$ftest < .05)/length(temp$ftest)
+  test6[i] = sum(temp$levene < .05)/length(temp$levene)
+  test65[i] = sum(temp$bf < .05)/length(temp$bf)
+}
+test7 <- vector(length=4)
+test8 <- vector(length=4)
+test85 <- vector(length=4)
+means = c(1,1.1,1.2,1.5)
+for (i in 1:length(ns)) {
+  temp <- exp_function(ns[i],1,1,500)
+  test7[i] = sum(temp$ftest < .05)/length(temp$ftest)
+  test8[i] = sum(temp$levene < .05)/length(temp$levene)
+  test85[i] = sum(temp$bf < .05)/length(temp$bf)
+}
+```
+
+```{r,echo=F}
+par(mfrow=c(1,2))
+plot(test5~means, xlab="difference in variances",ylab="Proportion rejected",ylim=c(0,1))
+title(main="sample variances")
+lines(test5~means)
+lines(test6~means,col="blue")
+# plot(test6~means, ylab="Proportion rejected")
+# title(main="Levene")
+# lines(test6~means)
+#par(mfrow=c(1,2))
+plot(test7~ns, xlab="sample size",ylab="Proportion rejected",ylim=c(0,1))
+title(main="sample sizes")
+lines(test7~ns)
+lines(test8~ns,col="blue")
+# plot(test6~means, ylab="Proportion rejected")
+# title(main="Levene")
+# lines(test6~means)
+```
+
+The black line represents the F-test, while the blue represents Levene's. The proportion of tests the F-test rejects seems to be consistently slightly above the Levene's proportions as the difference in variances increases, and so do sample sizes when population distributions are Normal. However, when the distributions are exponential or skewed right, the proportion of tests that the F-test rejects is higher than that of the Levene's test when variances are equal. It stays that way as sample size increases and means kept equal and constant; when both variances are equal to 1, Levene's test incorrectly rejects about 18% of the tests, while the F-test incorrectly rejects about 30%. 
+
+## Brown-Forsythe test
+
+Despite its leniency, Levene's test still wrongly rejects a decent proportion of tests, however. The test involves calculating the absolute difference between an observation and its respective group mean, incorporated as the dependent variable into its test statistic that would result from a one-way ANOVA.
+
+$$ W = \frac{N-k}{k-1} \frac{\sum^k_{i=1} {N_i(\bar{Z_i}-\bar{Z_{..}})^2}}{\sum^k_{i=1} {\sum_{j=1}^{N_i}(Z_{ij}-\bar{Z_{i.}})^2}} \\ \text{ where }Z_{ij} = |Y_{ij}-\bar{Y}_{i.}|$$
+
+We can modify the test statistic to get another named test; by finding the absolute difference between observations and group medians instead, we are performing the Brown-Forsythe test of variance. Y-bar i-dot in the above formula would be replaced with the respective group median. This is known to be a more robust way to test variance equalities under non-Normal situations. 
+
+```{r, echo=F}
+par(mfrow=c(1,2))
+plot(test6~means, xlab="difference in means",ylab="Proportion rejected",ylim=c(0,1))
+title(main="sample variances")
+lines(test6~means,col="blue")
+lines(test65~means,col="red")
+# plot(test6~means, ylab="Proportion rejected")
+# title(main="Levene")
+# lines(test6~means)
+#par(mfrow=c(1,2))
+plot(test8~ns, ylab="Proportion rejected",ylim=c(0,1))
+title(main="sample sizes")
+lines(test8~ns,col="blue")
+lines(test85~ns,col="red")
+# plot(test6~means, ylab="Proportion rejected")
+# title(main="Levene")
+# lines(test6~means)
+```
+
+The blue plot represents Levene's test, while the red plot represents Brown-Forsythe's. The two plots depict situations when the two population distributions are exponential with equal means, thus equal variances. The B-F test consistently rejects lower proportions of tests incorrectly as the difference in means, in turn variances between the two samples increase at size of 100. Both incorrect rejection rates remain constant as sample size increases and means remaining equal and constant, but B-F test rates always remain lower. We can clearly tell that switching to medians as the center for the test statistic proves to be a more robust method for testing variance equality, as it remains more lenient towards the normality assumption than Levene does. 
+
+## Setbacks/limits and Conclusion
+
+If more time and/or computing power was given for the project, it would be possible to run more than 500 hypothesis tests at a time like we are doing now to have the proportions of rejected tests converge more. We could also look into more equality of variances tests out there besides the ones we looked at. Additionally, we could examine more parameters besides the difference in variances/means and sample sizes. 
+
+Regarding the tests themselves, when it comes to normally distributed populations, both the F-test and Levene test were able to reject a low proportion of tests when variances were equal and higher proportions when they were not. Even in that scenario, Levene proved to be a slightly stronger method as it always rejected slightly lower proportions of tests. When it came to the Exponential distributions, Levene's test rejected significantly less rejected less tests incorrectly than the F-test did. On the other hand, if we switch to using the median as the center of the test statistic rather than the mean, we get the Brown Forsythe test that proved to be more robust as it rejected even lower proprotions of tests in all scenarios we looked at under the exponential distribution. 
