@@ -1,4 +1,4 @@
-# STAT-427-Project
+# Investigating Tests for Equality of Variances
 
 STAT 427 - Mathematical Statistics. The theory of hypothesis testing and its applications. Power and uniformly most powerful tests. Categorical data and nonparametric methods. Other selected topics.
 
